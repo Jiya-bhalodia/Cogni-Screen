@@ -1,0 +1,6 @@
+backend/database.db
+backend/__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
