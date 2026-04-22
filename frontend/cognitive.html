@@ -131,18 +131,8 @@
     }
 
     async function fetchMathQuestions() {
-      try {
-        const res = await fetch('http://localhost:5001/getMathQuestions');
-        const data = await res.json();
-        if (data.success) {
-          aiMathQuestions = data;
-        } else {
-          throw new Error('Backend error');
-        }
-      } catch(e) {
-        console.warn('[Math] Backend unavailable, using local fallback');
-        aiMathQuestions = generateFallbackMath();
-      }
+      // Math questions generated locally — no backend call needed
+      aiMathQuestions = generateFallbackMath();
       injectMathQuestions();
     }
 

@@ -1,6 +1,6 @@
 // ===== COGNISCREEN — SHARED UTILITIES =====
 
-const API_BASE = 'http://localhost:5001';
+const API_BASE = 'https://cogni-screen.onrender.com';
 
 // ---- API Helpers ----
 async function apiFetch(path) {
