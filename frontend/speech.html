@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Speech Test — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo"><span class="nav-logo-dot"></span>CogniScreen</a>
+      <div class="nav-links"><span class="badge badge-accent">Step 3 of 4 — Speech</span></div>
+    </div>
+  </nav>
+
+  <div style="padding:40px 0 80px;">
+    <div class="container" style="max-width:640px;">
+      <div class="text-center mb-8">
+        <h2 class="mb-3">Speech & Language Analysis</h2>
+        <p class="text-muted">Speak freely about the topic below. Your speech will be analyzed for fluency, coherence, and vocabulary.</p>
+      </div>
+
+      <div class="card mb-6" style="background:rgba(79,195,247,0.04);border-color:rgba(79,195,247,0.2);">
+        <p class="text-xs text-muted mb-2">SPEAK ABOUT THIS TOPIC</p>
+        <h3 id="speech-topic" style="font-size:1.15rem;color:var(--accent2);font-family:var(--font-serif);">Describe what you did yesterday morning in as much detail as possible.</h3>
+        <p class="text-sm text-muted mt-3">Aim for at least 30 seconds. Speak naturally and clearly.</p>
+      </div>
+
+      <div class="card">
+        <div class="recorder">
+          <div id="status-chip" class="status-chip"><div class="status-dot"></div> Ready to record</div>
+          <div class="waveform hidden" id="waveform">
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div>
+          </div>
+          <button class="record-btn" id="record-btn" onclick="toggleRecord()">🎙</button>
+          <div class="mono text-muted text-sm" id="rec-timer">0:00</div>
+          <p class="text-sm text-muted text-center" id="rec-instructions">Press the button to start recording</p>
+        </div>
+
+        <div id="processing-box" class="hidden">
+          <div class="divider"></div>
+          <div class="flex items-center gap-3 justify-center" style="padding:16px;">
+            <span class="spinner"></span>
+            <span class="text-sm text-muted" id="proc-status">Transcribing audio...</span>
+          </div>
+        </div>
+
+        <div id="results-box" class="hidden">
+          <div class="divider"></div>
+          <div style="padding:0 4px;">
+            <p class="text-xs text-muted mb-2">TRANSCRIPT</p>
+            <div class="transcript-box" id="transcript-text">—</div>
+            <div class="mt-4">
+              <p class="text-xs text-muted mb-3">AI FEEDBACK</p>
+              <div id="ai-feedback" class="card card-sm" style="background:rgba(129,212,250,0.05);border-color:rgba(129,212,250,0.15);">
+                <p class="text-sm" style="color:var(--accent2);">—</p>
+              </div>
+            </div>
+            <div class="mt-4 flex gap-3 flex-wrap">
+              <div class="card card-sm text-center" style="flex:1;min-width:80px;">
+                <div class="mono" style="font-size:1.4rem;color:var(--accent);" id="word-count">—</div>
+                <div class="text-xs text-muted">Words</div>
+              </div>
+              <div class="card card-sm text-center" style="flex:1;min-width:80px;">
+                <div class="mono" style="font-size:1.4rem;color:var(--accent);" id="unique-words">—</div>
+                <div class="text-xs text-muted">Unique</div>
+              </div>
+              <div class="card card-sm text-center" style="flex:1;min-width:80px;">
+                <div class="mono" style="font-size:1.4rem;color:var(--accent);" id="speech-score-val">—</div>
+                <div class="text-xs text-muted">Score</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-6 justify-between">
+        <button class="btn btn-ghost" onclick="resetRecording()" id="reset-btn" style="display:none;">↺ Re-record</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-outline" onclick="skipSpeech()" id="skip-btn">Skip (text mode)</button>
+        <button class="btn btn-primary" id="next-btn" onclick="goNext()" disabled>Continue →</button>
+      </div>
+
+      <div id="text-fallback" class="hidden mt-6">
+        <div class="card">
+          <p class="text-xs text-muted mb-3">TYPE YOUR RESPONSE INSTEAD</p>
+          <textarea id="text-speech" placeholder="Describe what you did yesterday morning..." style="font-size:0.95rem;min-height:120px;"></textarea>
+          <button class="btn btn-outline mt-4" onclick="analyzeTextSubmit()">Analyze Text →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    requireAuth();
+    // ✦ NO hard redirect guard — if recallScore missing we use fallback 50
+
+    let mediaRecorder = null, audioChunks = [], recordingInterval = null, recordingSeconds = 0, hasResult = false;
+
+    const topics = [
+      "Describe what you did yesterday morning in as much detail as possible.",
+      "Tell me about your favorite meal and how it is prepared.",
+      "Describe a memorable journey or trip you have taken.",
+      "Talk about your daily routine — what you do from morning to evening.",
+      "Describe someone important in your life and why they matter to you.",
+    ];
+    document.getElementById('speech-topic').textContent = topics[Math.floor(Math.random() * topics.length)];
+
+    async function toggleRecord() {
+      if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording();
+      else await startRecording();
+    }
+
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = processAudio;
+        mediaRecorder.start(250);
+        document.getElementById('record-btn').classList.add('recording');
+        document.getElementById('record-btn').textContent = '⏹';
+        document.getElementById('waveform').classList.remove('hidden');
+        document.getElementById('rec-instructions').textContent = 'Speak clearly... Press button to stop.';
+        setStatus('listening', 'Recording...');
+        recordingSeconds = 0;
+        recordingInterval = setInterval(() => {
+          recordingSeconds++;
+          const m = Math.floor(recordingSeconds/60), s = recordingSeconds%60;
+          document.getElementById('rec-timer').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+        }, 1000);
+      } catch(err) {
+        showToast('Microphone access denied. Use text mode below.', 'error');
+        document.getElementById('text-fallback').classList.remove('hidden');
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder) { mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t => t.stop()); }
+      clearInterval(recordingInterval);
+      document.getElementById('record-btn').classList.remove('recording');
+      document.getElementById('record-btn').textContent = '🎙';
+      document.getElementById('waveform').classList.add('hidden');
+      setStatus('processing', 'Processing...');
+    }
+
+    async function processAudio() {
+      document.getElementById('processing-box').classList.remove('hidden');
+      document.getElementById('rec-instructions').textContent = 'Processing your speech...';
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('audio', blob, 'recording.webm');
+      try {
+        document.getElementById('proc-status').textContent = 'Transcribing with Whisper...';
+        const res = await fetch(API_BASE + '/speech', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) displayResults(data.transcript, data.score, data.feedback, data.word_count, data.unique_words, data.markers);
+        else throw new Error(data.error || 'Transcription failed');
+      } catch(err) {
+        showToast('Speech service unavailable. Use text mode.', 'warn');
+        document.getElementById('text-fallback').classList.remove('hidden');
+        document.getElementById('processing-box').classList.add('hidden');
+        setStatus('idle', 'Use text mode below');
+      }
+    }
+
+    function displayResults(transcript, score, feedback, wordCount, uniqueWords, markers) {
+      document.getElementById('processing-box').classList.add('hidden');
+      document.getElementById('results-box').classList.remove('hidden');
+      document.getElementById('transcript-text').textContent = transcript || '(No speech detected)';
+      document.getElementById('ai-feedback').innerHTML = `<p class="text-sm" style="color:var(--accent2);line-height:1.8;">💬 ${feedback}</p>`;
+      document.getElementById('word-count').textContent = wordCount || 0;
+      document.getElementById('unique-words').textContent = uniqueWords || 0;
+      document.getElementById('speech-score-val').textContent = score + '%';
+
+      // Show clinical markers if available
+      if (markers) {
+        const markerHtml = `
+          <div class="mt-4">
+            <p class="text-xs text-muted mb-3">CLINICAL SPEECH MARKERS</p>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+              ${markerCard('🗣️', markers.speech_rate ? markers.speech_rate + ' wpm' : '—', 'Speech Rate', markers.speech_rate > 0 && markers.speech_rate < 110 ? 'warn' : 'ok')}
+              ${markerCard('⏸️', markers.long_pauses, 'Long Pauses', markers.long_pauses >= 3 ? 'danger' : markers.long_pauses >= 1 ? 'warn' : 'ok')}
+              ${markerCard('🔁', markers.stutters, 'Repetitions', markers.stutters >= 4 ? 'danger' : markers.stutters >= 2 ? 'warn' : 'ok')}
+              ${markerCard('💬', markers.fillers, 'Filler Words', markers.fillers >= 5 ? 'warn' : 'ok')}
+              ${markerCard('⏱️', markers.avg_pause + 's', 'Avg Pause', markers.avg_pause > 1.5 ? 'warn' : 'ok')}
+              ${markerCard('📊', markers.total_pauses, 'Total Pauses', 'neutral')}
+            </div>
+          </div>`;
+        document.getElementById('results-box').insertAdjacentHTML('beforeend', markerHtml);
+      }
+
+      document.getElementById('reset-btn').style.display = '';
+      document.getElementById('next-btn').disabled = false;
+      setStatus('done', 'Analysis complete');
+      hasResult = true;
+      sessionStorage.setItem('speechScore', score);
+      sessionStorage.setItem('speechTranscript', transcript || '');
+      localStorage.setItem('result_speechScore', score);
+      localStorage.setItem('result_speechTranscript', transcript || '');
+    }
+
+    function markerCard(icon, value, label, level) {
+      const colors = { ok: '#4caf50', warn: '#ffb74d', danger: '#ef5350', neutral: '#4fc3f7' };
+      const color = colors[level] || colors.neutral;
+      return `<div class="card card-sm text-center" style="border-color:${color}22;">
+        <div style="font-size:1.1rem;margin-bottom:4px;">${icon}</div>
+        <div class="mono" style="font-size:1rem;font-weight:600;color:${color};">${value}</div>
+        <div class="text-xs text-muted">${label}</div>
+      </div>`;
+    }
+
+    function setStatus(type, text) {
+      const chip = document.getElementById('status-chip');
+      chip.className = 'status-chip ' + (type==='listening'?'listening':type==='processing'?'processing':type==='done'?'done':'');
+      const dot = (type==='listening'||type==='processing') ? '<div class="status-dot animate"></div>' : '<div class="status-dot"></div>';
+      chip.innerHTML = dot + ' ' + text;
+    }
+
+    function resetRecording() {
+      hasResult = false; audioChunks = [];
+      document.getElementById('results-box').classList.add('hidden');
+      document.getElementById('processing-box').classList.add('hidden');
+      document.getElementById('reset-btn').style.display = 'none';
+      document.getElementById('next-btn').disabled = true;
+      document.getElementById('rec-timer').textContent = '0:00';
+      document.getElementById('rec-instructions').textContent = 'Press the button to start recording';
+      setStatus('idle', 'Ready to record');
+      sessionStorage.removeItem('speechScore');
+      localStorage.removeItem('result_speechScore');
+    }
+
+    function skipSpeech() { document.getElementById('text-fallback').classList.toggle('hidden'); }
+
+    function analyzeTextSubmit() {
+      const text = document.getElementById('text-speech').value.trim();
+      if (!text) return;
+      const words = text.split(/\s+/).filter(w => w.length > 0);
+      const unique = new Set(words.map(w => w.toLowerCase().replace(/[^a-z]/g,''))).size;
+      let score = 0;
+      if (words.length >= 50) score += 30; else if (words.length >= 30) score += 20; else if (words.length >= 15) score += 10;
+      score += Math.round((words.length > 0 ? unique/words.length : 0) * 40);
+      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3).length;
+      if (sentences >= 5) score += 30; else score += sentences * 6;
+      score = Math.min(100, score);
+      let fb = [];
+      if (words.length < 20) fb.push('Brief response.'); else if (words.length >= 60) fb.push('Good response length.');
+      if (unique/words.length > 0.7) fb.push('Excellent vocabulary diversity.'); else fb.push('Some word repetition detected.');
+      displayResults(text, score, fb.join(' '), words.length, unique);
+    }
+
+    function goNext() {
+      // ✦ Set a fallback score if user skipped speech entirely
+      const existing = sessionStorage.getItem('speechScore') || localStorage.getItem('result_speechScore');
+      if (!existing) {
+        sessionStorage.setItem('speechScore', '50');
+        localStorage.setItem('result_speechScore', '50');
+      }
+      location.href = 'result.html';
+    }
+  </script>
+</body>
+</html>

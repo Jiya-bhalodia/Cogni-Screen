@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cognitive Test — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="nav-logo-dot"></span>CogniScreen
+      </a>
+      <div class="nav-links">
+        <a href="dashboard.html" class="nav-link">← Dashboard</a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="padding:40px 0 80px;">
+    <div class="container">
+      <!-- Progress -->
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs text-muted">COGNITIVE ASSESSMENT</span>
+        <span class="text-xs text-muted mono" id="q-counter">0 / 0</span>
+      </div>
+      <div class="progress-wrap mb-8">
+        <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+      </div>
+
+      <!-- Step indicator -->
+      <div class="step-indicator mb-8" id="step-indicator"></div>
+
+      <!-- Question card -->
+      <div class="card card-glow fade-in" id="question-card">
+        <div id="question-area"></div>
+      </div>
+
+      <!-- Nav buttons -->
+      <div class="flex gap-3 mt-6 justify-between">
+        <button class="btn btn-ghost" id="back-btn" onclick="prevQuestion()" style="display:none;">← Back</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="next-btn" onclick="nextQuestion()" disabled>
+          Continue →
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    requireAuth();
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+    function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
+
+    // ── Section 4: load 3 random words from words.txt ─────────────────────────
+    let chosenWords = ['APPLE', 'TABLE', 'RIVER']; // safe fallback
+    async function loadWords() {
+      try {
+        const res = await fetch('words.txt');
+        const text = await res.text();
+        const all = text.split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3 && w.length <= 10);
+        const picked = shuffle(all).slice(0, 3);
+        if (picked.length === 3) chosenWords = picked;
+      } catch(e) { /* keep fallback */ }
+    }
+
+    // ── Section 5: all 26 letters (excluding hard ones like Q, X, Z for fairness) ──
+    const ALL_LETTERS = 'ABCDEFGHIJKLMNOPRSTUW'.split(''); // 21 practical letters
+    const chosenLetter = pick(ALL_LETTERS);
+
+    // Section 5 sentences — 12 simple, well-known proverbs (only one is shown per test)
+    const SENTENCE_POOLS = [
+      'All that glitters is not gold',
+      'A stitch in time saves nine',
+      'Every cloud has a silver lining',
+      'Actions speak louder than words',
+      'The early bird catches the worm',
+      'Look before you leap',
+      'Practice makes a man perfect',
+      'Slow and steady wins the race',
+      'Honesty is the best policy',
+      'Better late than never',
+      'Too many cooks spoil the broth',
+      'Where there is a will there is a way',
+    ];
+    const chosenSentence = pick(SENTENCE_POOLS);
+
+    // ── Section 7: AI-generated math questions ────────────────────────────────
+    // Placeholder objects — will be replaced by AI response before test starts
+    let aiMathQuestions = null; // { q1, q2, q3 } filled by fetchMathQuestions()
+
+    // Fallback questions used if AI is unavailable
+    function generateFallbackMath() {
+      const ops = ['addition','subtraction','multiplication','division'];
+      const op = pick(ops);
+      let q1;
+      if (op === 'addition') {
+        const a = Math.floor(Math.random()*400)+100, b = Math.floor(Math.random()*300)+50;
+        q1 = { text:`What is ${a} + ${b}?`, answer: a+b, op:'addition' };
+      } else if (op === 'subtraction') {
+        const a = Math.floor(Math.random()*500)+300, b = Math.floor(Math.random()*200)+50;
+        q1 = { text:`What is ${a} − ${b}?`, answer: a-b, op:'subtraction' };
+      } else if (op === 'multiplication') {
+        const a = Math.floor(Math.random()*9)+2, b = Math.floor(Math.random()*9)+2;
+        q1 = { text:`What is ${a} × ${b}?`, answer: a*b, op:'multiplication' };
+      } else {
+        const b = Math.floor(Math.random()*8)+2, a = b*(Math.floor(Math.random()*9)+2);
+        q1 = { text:`What is ${a} ÷ ${b}?`, answer: a/b, op:'division' };
+      }
+      // Word problem
+      const fruits = ['apples','oranges','mangoes','bananas','guavas'];
+      const fruit = pick(fruits);
+      const qty = Math.floor(Math.random()*6)+2, price = Math.floor(Math.random()*15)+5;
+      const q2 = { text:`If one ${fruit.slice(0,-1)} costs ₹${price}, what is the total cost of ${qty} ${fruit}?`, answer: qty*price };
+      // Analogy / reasoning
+      const pairs = [
+        { text:'Complete the pattern: 2, 4, 8, 16, ___', answer: 32 },
+        { text:'Complete the pattern: 3, 6, 9, 12, ___', answer: 15 },
+        { text:'Complete the pattern: 5, 10, 15, 20, ___', answer: 25 },
+        { text:'Complete the pattern: 1, 4, 9, 16, ___', answer: 25 },
+        { text:'Complete the pattern: 2, 5, 10, 17, ___', answer: 26 },
+        { text:'Complete the pattern: 100, 90, 81, 73, ___', answer: 66 },
+      ];
+      const q3 = pick(pairs);
+      return { q1, q2, q3 };
+    }
+
+    async function fetchMathQuestions() {
+      try {
+        const res = await fetch('http://localhost:5001/getMathQuestions');
+        const data = await res.json();
+        if (data.success) {
+          aiMathQuestions = data;
+        } else {
+          throw new Error('Backend error');
+        }
+      } catch(e) {
+        console.warn('[Math] Backend unavailable, using local fallback');
+        aiMathQuestions = generateFallbackMath();
+      }
+      injectMathQuestions();
+    }
+
+    function injectMathQuestions() {
+      const q1Idx = allQuestions.findIndex(q => q.id === 'math_ai_1');
+      const q2Idx = allQuestions.findIndex(q => q.id === 'math_ai_2');
+      const q3Idx = allQuestions.findIndex(q => q.id === 'math_ai_3');
+      if (q1Idx !== -1 && aiMathQuestions) {
+        allQuestions[q1Idx] = { ...allQuestions[q1Idx], text: aiMathQuestions.q1.text, answer: aiMathQuestions.q1.answer };
+        allQuestions[q2Idx] = { ...allQuestions[q2Idx], text: aiMathQuestions.q2.text, answer: aiMathQuestions.q2.answer };
+        allQuestions[q3Idx] = { ...allQuestions[q3Idx], text: aiMathQuestions.q3.text, answer: aiMathQuestions.q3.answer };
+      }
+      // Re-render current question in case we're already on it
+      renderQuestion();
+    }
+
+    // ── Question bank ─────────────────────────────────────────────────────────
+    // Built after async inits; words injected via buildSections()
+    let allQuestions = [];
+    let sections = [];
+
+    function buildSections() {
+      sections = [
+        {
+          id: 'orientation-time', label: 'Orientation',
+          questions: [
+            { id:'day', text:'What day of the week is it today?', type:'choice',
+              options:['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] },
+            { id:'month', text:'What month is it currently?', type:'choice',
+              options:['January','February','March','April','May','June','July','August','September','October','November','December'] },
+            { id:'year', text:'What year is it?', type:'number', placeholder:'Enter the year', min:1900, max:2100 },
+            { id:'season', text:'What season is it currently in India?', type:'choice',
+              options:['Summer','Monsoon','Autumn','Winter','Spring'] },
+          ]
+        },
+        {
+          id:'orientation-place', label:'Place',
+          questions: [
+            { id:'city', text:'What city or town are you in right now?', type:'text', placeholder:'Your city...' },
+            { id:'state', text:'What state are you in?', type:'text', placeholder:'Your state...' },
+            { id:'country', text:'What country are you in?', type:'text', placeholder:'Your country...' },
+          ]
+        },
+        {
+          id:'attention', label:'Attention',
+          questions: [
+            { id:'serial7_intro', type:'info', title:'Serial Subtraction Task',
+              text:'You will now be asked to perform a subtraction task. Starting from 100, keep subtracting 7 each time. Enter your answers one by one.' },
+            { id:'serial7', text:'Start from 100 and subtract 7 five times. Enter all five answers separated by commas.',
+              type:'serial7', placeholder:'e.g. 93, 86, 79, 72, 65', expected:[93,86,79,72,65] },
+          ]
+        },
+        {
+          id:'recall-register', label:'Word Memory',
+          questions: [
+            { id:'words_register', type:'memorize',
+              title:'Word Registration',
+              text:'Read and memorize these 3 words carefully. You will be tested on them later.',
+              words: chosenWords }
+          ]
+        },
+        {
+          id:'language', label:'Language',
+          questions: [
+            { id:'repeat1', text:`Repeat this sentence exactly: "${chosenSentence}"`, type:'repeat', target: chosenSentence },
+            { id:'fluency_letter', text:`In 60 seconds, name as many words as you can that start with the letter "${chosenLetter}". (Do not use names of people or places.)`,
+              type:'fluency', timeLimit:60 },
+            { id:'fluency_animals', text:'In 60 seconds, name as many animals as you can.', type:'fluency', timeLimit:60 },
+          ]
+        },
+        {
+          id:'recall-test', label:'Recall',
+          questions: [
+            { id:'word_recall', text:'What were the 3 words I asked you to memorize earlier?', type:'recall3', target: chosenWords },
+          ]
+        },
+        {
+          id:'problem-solving', label:'Reasoning',
+          questions: [
+            // Placeholders — replaced by injectMathQuestions() once AI responds
+            { id:'math_ai_1', type:'number', text:'Loading question…', answer:0, placeholder:'Enter your answer' },
+            { id:'math_ai_2', type:'number', text:'Loading question…', answer:0, placeholder:'Enter your answer' },
+            { id:'math_ai_3', type:'number', text:'Loading question…', answer:0, placeholder:'Enter your answer' },
+          ]
+        }
+      ];
+
+      allQuestions.length = 0;
+      sections.forEach(sec => {
+        sec.questions.forEach((q, i) => {
+          allQuestions.push({ ...q, section: sec.label, sectionId: sec.id, isFirst: i === 0 });
+        });
+      });
+    }
+
+    const answers = {};
+    let current = 0;
+    let fluencyTimer = null;
+
+    // ── Kick off async inits, then start the test ─────────────────────────────
+    async function init() {
+      await loadWords();
+      sessionStorage.setItem('chosenWords', JSON.stringify(chosenWords));
+      buildSections();
+      renderQuestion();
+      // Fetch AI math in background — injects when ready
+      fetchMathQuestions();
+    }
+    init();
+
+    function renderStepIndicator() {
+      const indicator = document.getElementById('step-indicator');
+      const sectionNames = [...new Set(allQuestions.map(q => q.section))];
+      const currentSection = allQuestions[current].section;
+      let html = '';
+      sectionNames.forEach((sec, i) => {
+        const secIdx = allQuestions.findIndex(q => q.section === sec);
+        const isDone = allQuestions.findIndex(q => q.section === sec) < current;
+        const isActive = sec === currentSection;
+        const dotClass = isDone ? 'done' : isActive ? 'active' : '';
+        html += `<div class="step-dot ${dotClass}" title="${sec}">${i + 1}</div>`;
+        if (i < sectionNames.length - 1) {
+          html += `<div class="step-line ${isDone ? 'done' : ''}"></div>`;
+        }
+      });
+      indicator.innerHTML = html;
+    }
+
+    function renderQuestion() {
+      const q = allQuestions[current];
+      const total = allQuestions.length;
+      document.getElementById('q-counter').textContent = `${current + 1} / ${total}`;
+      document.getElementById('progress-bar').style.width = `${((current) / total) * 100}%`;
+      document.getElementById('back-btn').style.display = current > 0 ? '' : 'none';
+      document.getElementById('next-btn').disabled = !hasAnswer(q);
+      document.getElementById('next-btn').textContent = current === allQuestions.length - 1 ? 'Finish →' : 'Continue →';
+      renderStepIndicator();
+
+      if (fluencyTimer) { clearInterval(fluencyTimer); fluencyTimer = null; }
+
+      let html = `<div class="mb-2"><span class="badge badge-accent">${q.section}</span></div>`;
+
+      switch (q.type) {
+        case 'info':
+          html += `<h2 class="mb-4">${q.title}</h2><p class="text-muted" style="font-size:1rem;line-height:1.8;">${q.text}</p>`;
+          document.getElementById('next-btn').disabled = false;
+          break;
+
+        case 'memorize':
+          html += `<h2 class="mb-4">${q.title}</h2>
+          <p class="text-muted mb-6" style="font-size:0.95rem;">${q.text}</p>
+          <div class="flex gap-4 justify-center" style="margin:32px 0;">
+            ${q.words.map(w => `<div class="card" style="padding:24px 40px;text-align:center;border-color:rgba(79,195,247,0.3);">
+              <div style="font-size:1.6rem;font-weight:600;letter-spacing:0.1em;color:var(--accent);">${w}</div>
+            </div>`).join('')}
+          </div>
+          <div class="alert alert-info">💡 Take your time to memorize these words. They will be tested later.</div>`;
+          answers[q.id] = true;
+          document.getElementById('next-btn').disabled = false;
+          break;
+
+        case 'choice':
+          html += `<h2 class="mb-6" style="font-size:1.35rem;">${q.text}</h2>
+          <div class="option-grid">
+            ${q.options.map((opt, i) => {
+              const selected = answers[q.id] === opt;
+              return `<div class="option ${selected?'selected':''}" onclick="selectChoice('${q.id}', '${opt}', this)">
+                <span class="option-key">${String.fromCharCode(65+i)}</span> ${opt}
+              </div>`;
+            }).join('')}
+          </div>`;
+          break;
+
+        case 'text':
+          html += `<h2 class="mb-6" style="font-size:1.35rem;">${q.text}</h2>
+          <input type="text" id="input-${q.id}" placeholder="${q.placeholder||''}" 
+            value="${answers[q.id]||''}"
+            oninput="textAnswer('${q.id}', this.value)"
+            style="font-size:1rem;" />`;
+          break;
+
+        case 'number':
+          html += `<h2 class="mb-6" style="font-size:1.35rem;">${q.text}</h2>
+          <input type="number" id="input-${q.id}" placeholder="${q.placeholder||''}"
+            value="${answers[q.id]||''}"
+            min="${q.min||0}" max="${q.max||9999}"
+            oninput="textAnswer('${q.id}', this.value)"
+            style="font-size:1rem;max-width:200px;" />
+          ${q.answer !== undefined ? `<p class="input-hint">Enter a numeric value</p>` : ''}`;
+          break;
+
+        case 'textarea':
+          html += `<h2 class="mb-6" style="font-size:1.35rem;">${q.text}</h2>
+          <textarea id="input-${q.id}" placeholder="${q.placeholder||''}"
+            oninput="textAnswer('${q.id}', this.value)"
+            style="font-size:0.95rem;">${answers[q.id]||''}</textarea>`;
+          break;
+
+        case 'repeat':
+          html += `<h2 class="mb-4" style="font-size:1.35rem;">${q.text}</h2>
+          <div class="card card-sm mb-4" style="border-color:rgba(79,195,247,0.25);background:var(--accent-glow);">
+            <div style="font-size:1.1rem;font-style:italic;color:var(--accent);">"${q.target}"</div>
+          </div>
+          <input type="text" id="input-${q.id}" placeholder="Type the sentence exactly..."
+            value="${answers[q.id]||''}"
+            oninput="textAnswer('${q.id}', this.value)" style="font-size:0.95rem;" />
+          <p class="input-hint">Type it exactly as shown above</p>`;
+          break;
+
+        case 'serial7':
+          html += `<h2 class="mb-4" style="font-size:1.35rem;">${q.text}</h2>
+          <div class="card card-sm mb-4" style="background:rgba(255,183,77,0.05);border-color:rgba(255,183,77,0.2);">
+            <p style="color:var(--warn);font-size:0.9rem;">100 → subtract 7 → ? → subtract 7 → ? → subtract 7 → ? → subtract 7 → ? → subtract 7 → ?</p>
+          </div>
+          <input type="text" id="input-${q.id}" placeholder="${q.placeholder}"
+            value="${answers[q.id]||''}"
+            oninput="textAnswer('${q.id}', this.value)" style="font-size:1rem;" />
+          <p class="input-hint">Enter 5 numbers separated by commas</p>`;
+          break;
+
+        case 'fluency': {
+          const timeLeft = { val: q.timeLimit };
+          const saved = answers[q.id] || '';
+          html += `<h2 class="mb-4" style="font-size:1.3rem;">${q.text}</h2>
+          <div class="flex items-center gap-4 mb-4">
+            <div class="timer-ring" id="fluency-timer">${q.timeLimit}</div>
+            <button class="btn btn-outline" id="start-fluency" onclick="startFluency('${q.id}', ${q.timeLimit})">Start Timer</button>
+          </div>
+          <textarea id="input-${q.id}" placeholder="Type words separated by commas..."
+            oninput="textAnswer('${q.id}', this.value)"
+            style="font-size:0.95rem;">${saved}</textarea>
+          <p class="input-hint" id="fluency-count">Words entered: ${saved ? saved.split(',').filter(w=>w.trim()).length : 0}</p>`;
+          break;
+        }
+
+        case 'recall3': {
+          html += `<h2 class="mb-6" style="font-size:1.35rem;">${q.text}</h2>
+          <div class="grid-3 mb-4">
+            ${[0,1,2].map(i => `
+              <div>
+                <label>Word ${i+1}</label>
+                <input type="text" id="recall-${i}"
+                  value="${(answers[q.id]||[])[i]||''}"
+                  oninput="recallAnswer('${q.id}')"
+                  placeholder="Word ${i+1}..."
+                  style="font-size:1rem;text-transform:uppercase;" />
+              </div>
+            `).join('')}
+          </div>`;
+          break;
+        }
+      }
+
+      document.getElementById('question-area').innerHTML = html;
+
+      // Auto-focus text inputs
+      const inp = document.querySelector(`#input-${q.id}`);
+      if (inp) setTimeout(() => inp.focus(), 100);
+    }
+
+    function hasAnswer(q) {
+      if (['info','memorize'].includes(q.type)) return true;
+      if (q.type === 'recall3') return (answers[q.id]||[]).some(w => w.trim());
+      return !!answers[q.id] && answers[q.id].toString().trim() !== '';
+    }
+
+    function selectChoice(id, val, el) {
+      answers[id] = val;
+      document.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      document.getElementById('next-btn').disabled = false;
+    }
+
+    function textAnswer(id, val) {
+      answers[id] = val;
+      document.getElementById('next-btn').disabled = !val.trim();
+    }
+
+    function recallAnswer(id) {
+      const vals = [0,1,2].map(i => (document.getElementById('recall-'+i)||{value:''}).value.trim().toUpperCase());
+      answers[id] = vals;
+      document.getElementById('next-btn').disabled = !vals.some(v => v);
+    }
+
+    function startFluency(id, total) {
+      const timerEl = document.getElementById('fluency-timer');
+      const startBtn = document.getElementById('start-fluency');
+      if (startBtn) startBtn.style.display = 'none';
+      let remaining = total;
+      timerEl.textContent = remaining;
+      fluencyTimer = setInterval(() => {
+        remaining--;
+        timerEl.textContent = remaining;
+        timerEl.className = 'timer-ring' + (remaining <= 10 ? ' danger' : remaining <= 20 ? ' warn' : '');
+        const inp = document.getElementById('input-'+id);
+        if (inp) {
+          const count = inp.value.split(',').filter(w => w.trim()).length;
+          const countEl = document.getElementById('fluency-count');
+          if (countEl) countEl.textContent = 'Words entered: ' + count;
+        }
+        if (remaining <= 0) {
+          clearInterval(fluencyTimer);
+          fluencyTimer = null;
+          timerEl.textContent = '✓';
+          timerEl.className = 'timer-ring done';
+          document.getElementById('next-btn').disabled = false;
+        }
+      }, 1000);
+    }
+
+    function prevQuestion() {
+      if (current > 0) { current--; renderQuestion(); }
+    }
+
+    function nextQuestion() {
+      const q = allQuestions[current];
+      if (current === allQuestions.length - 1) {
+        finishCognitive();
+        return;
+      }
+      current++;
+      const card = document.getElementById('question-card');
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(20px)';
+      card.style.transition = 'all 0.2s';
+      setTimeout(() => {
+        renderQuestion();
+        card.style.opacity = '1';
+        card.style.transform = 'none';
+      }, 200);
+    }
+
+    async function finishCognitive() {
+      // Disable button and show loading
+      document.getElementById('next-btn').disabled = true;
+      document.getElementById('next-btn').innerHTML = '<span class="spinner"></span> AI Scoring…';
+
+      let score = 0, maxScore = 0;
+
+      // ── Objective scores (exact, no AI needed) ──────────────────────────────
+      const now = new Date();
+      const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      if (answers['day']   === days[now.getDay()])     score++;
+      if (answers['month'] === months[now.getMonth()]) score++;
+      if (parseInt(answers['year']) === now.getFullYear()) score++;
+
+      // Season — based on current Indian month (real-time check)
+      const m = now.getMonth() + 1; // 1=Jan … 12=Dec
+      const correctSeason =
+        (m >= 3 && m <= 5)  ? 'Summer'  :   // Mar–May
+        (m >= 6 && m <= 9)  ? 'Monsoon' :   // Jun–Sep
+        (m >= 10 && m <= 11)? 'Autumn'  :   // Oct–Nov
+        (m === 2)           ? 'Spring'  :   // Feb
+                              'Winter';     // Dec–Jan
+      if (answers['season'] === correctSeason) score++;
+      maxScore += 4; // day, month, year, season
+
+      // Serial 7
+      if (answers['serial7']) {
+        const nums = answers['serial7'].split(',').map(n => parseInt(n.trim()));
+        [93,86,79,72,65].forEach((exp, i) => { if (nums[i] === exp) score++; });
+        maxScore += 5;
+      }
+
+      // Math
+      const mq = aiMathQuestions || generateFallbackMath();
+      if (parseInt(answers['math_ai_1']) === mq.q1.answer) score += 2;
+      if (parseInt(answers['math_ai_2']) === mq.q2.answer) score += 2;
+      if (parseInt(answers['math_ai_3']) === mq.q3.answer) score += 2;
+      maxScore += 6;
+
+      // ── AI scoring for open-ended answers via backend ───────────────────────
+      let ai = null;
+      try {
+        const res = await fetch('http://localhost:5001/scoreAnswers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            word_recall:      (answers['word_recall'] || []).map(w => (w||'').trim()),
+            chosen_words:     chosenWords,
+            sentence_typed:   answers['repeat1'] || '',
+            sentence_correct: chosenSentence,
+            fluency_letter:   chosenLetter,
+            fluency_words:    answers['fluency_letter'] || '',
+            animal_words:     answers['fluency_animals'] || '',
+            city:             answers['city'] || '',
+            state:            answers['state'] || '',
+            country:          answers['country'] || ''
+          })
+        });
+        ai = await res.json();
+      } catch(e) {
+        console.warn('[AI Scoring] Backend unavailable, using local fallback');
+      }
+
+      if (ai && ai.success) {
+        // Word recall /3
+        score += ai.word_recall_total || 0;
+        maxScore += 3;
+        // Sentence /2
+        score += Math.min(ai.sentence_score || 0, 2);
+        maxScore += 2;
+        // Letter fluency /7 (ACE-III scale)
+        const lv = ai.fluency_letter_valid || 0;
+        score += lv>14?7:lv>10?6:lv>7?5:lv>5?4:lv>3?3:lv>1?2:lv>0?1:0;
+        maxScore += 7;
+        // Animal fluency /7
+        const av = ai.fluency_animals_valid || 0;
+        score += av>16?7:av>13?6:av>10?5:av>7?4:av>5?3:av>2?2:av>0?1:0;
+        maxScore += 7;
+        // Place /3
+        score += (ai.place_city||0) + (ai.place_state||0) + (ai.place_country||0);
+        maxScore += 3;
+        sessionStorage.setItem('aiFeedback', JSON.stringify(ai));
+        localStorage.setItem('result_aiFeedback', JSON.stringify(ai));
+      } else {
+        // Local fallback
+        (answers['word_recall']||[]).forEach(w => {
+          if (chosenWords.some(t => levenshtein((w||'').toUpperCase(), t.toUpperCase()) <= 2)) score++;
+        });
+        maxScore += 3;
+        const r1 = (answers['repeat1']||'').toLowerCase().replace(/[^a-z ]/g,'').trim();
+        const dist = levenshtein(r1, chosenSentence.toLowerCase());
+        score += dist<=2?2:dist<=6?1:0;
+        maxScore += 2;
+        const lw = (answers['fluency_letter']||'').split(',').filter(w=>w.trim()).length;
+        const aw = (answers['fluency_animals']||'').split(',').filter(w=>w.trim()).length;
+        score += Math.min(lw,7) + Math.min(aw,7);
+        maxScore += 14;
+        if ((answers['city']||'').trim().length>1) score++;
+        if ((answers['state']||'').trim().length>1) score++;
+        if ((answers['country']||'').trim().length>1) score++;
+        maxScore += 3;
+      }
+
+      const pct = Math.round((score / maxScore) * 100);
+      sessionStorage.setItem('cogScore', pct);
+      sessionStorage.setItem('cogAnswers', JSON.stringify(answers));
+      localStorage.setItem('result_cogScore', pct);
+      location.href = 'memory.html';
+    }
+
+    function levenshtein(a, b) {
+      const m = a.length, n = b.length;
+      const dp = Array.from({length:m+1}, (_,i) => [i, ...Array(n).fill(0)]);
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+      for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+      }
+      return dp[m][n];
+    }
+    // init() already calls renderQuestion() — no duplicate call needed
+  </script>
+</body>
+</html>

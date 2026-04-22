@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <div class="page-center">
+    <div class="auth-wrap fade-in">
+      <div class="auth-logo">
+        <a href="index.html" style="text-decoration:none;color:inherit;">
+          <h1 class="serif">Cogni<span class="text-accent">Screen</span></h1>
+        </a>
+        <p class="text-muted">Clinical Cognitive Screening Tool</p>
+      </div>
+      <div class="card">
+        <h2 class="mb-6" style="font-size:1.5rem;">Welcome back</h2>
+        <div id="error-msg"></div>
+        <form id="login-form">
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="email" placeholder="you@example.com" required />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="••••••••" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+            Sign In
+          </button>
+        </form>
+        <div class="divider"></div>
+        <p class="text-center text-sm text-muted">
+          Don't have an account? <a href="register.html" class="text-accent" style="text-decoration:none;">Create one</a>
+        </p>
+      </div>
+      <p class="text-center text-xs text-muted mt-4" style="opacity:0.5;">
+        For research & educational purposes only. Not a medical diagnosis tool.
+      </p>
+    </div>
+  </div>
+  <script src="script.js"></script>
+  <script>
+    requireGuest();
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      const errDiv = document.getElementById('error-msg');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Signing in...';
+      errDiv.innerHTML = '';
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        const res = await apiPost('/login', { email, password });
+        if (res.success) {
+          localStorage.setItem('user', JSON.stringify(res.user));
+          showToast('Welcome back, ' + res.user.name + '!', 'success');
+          setTimeout(() => location.href = 'dashboard.html', 800);
+        } else {
+          errDiv.innerHTML = `<div class="alert alert-error">⚠ ${res.error || 'Invalid credentials'}</div>`;
+          btn.disabled = false;
+          btn.innerHTML = 'Sign In';
+        }
+      } catch (err) {
+        errDiv.innerHTML = `<div class="alert alert-error">⚠ Cannot connect to server. Make sure backend is running.</div>`;
+        btn.disabled = false;
+        btn.innerHTML = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>

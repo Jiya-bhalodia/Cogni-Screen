@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <div class="page-center">
+    <div class="auth-wrap fade-in">
+      <div class="auth-logo">
+        <a href="index.html" style="text-decoration:none;color:inherit;">
+          <h1 class="serif">Cogni<span class="text-accent">Screen</span></h1>
+        </a>
+        <p class="text-muted">Clinical Cognitive Screening Tool</p>
+      </div>
+      <div class="card">
+        <h2 class="mb-6" style="font-size:1.5rem;">Create your account</h2>
+        <div id="error-msg"></div>
+        <form id="register-form">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="name" placeholder="Dr. Jane Smith" required />
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="email" placeholder="you@example.com" required />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="Minimum 8 characters" required minlength="8" />
+          </div>
+          <div class="form-group">
+            <label>Confirm Password</label>
+            <input type="password" id="confirm" placeholder="Re-enter password" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="reg-btn">
+            Create Account
+          </button>
+        </form>
+        <div class="divider"></div>
+        <p class="text-center text-sm text-muted">
+          Already have an account? <a href="login.html" class="text-accent" style="text-decoration:none;">Sign in</a>
+        </p>
+      </div>
+      <p class="text-center text-xs text-muted mt-4" style="opacity:0.5;">
+        For research & educational purposes only. Not a medical diagnosis tool.
+      </p>
+    </div>
+  </div>
+  <script src="script.js"></script>
+  <script>
+    requireGuest();
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('reg-btn');
+      const errDiv = document.getElementById('error-msg');
+      errDiv.innerHTML = '';
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm').value;
+      if (password !== confirm) {
+        errDiv.innerHTML = `<div class="alert alert-error">⚠ Passwords do not match.</div>`;
+        return;
+      }
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Creating account...';
+      try {
+        const res = await apiPost('/register', { name, email, password });
+        if (res.success) {
+          localStorage.setItem('user', JSON.stringify(res.user));
+          showToast('Account created successfully!', 'success');
+          setTimeout(() => location.href = 'dashboard.html', 800);
+        } else {
+          errDiv.innerHTML = `<div class="alert alert-error">⚠ ${res.error || 'Registration failed'}</div>`;
+          btn.disabled = false;
+          btn.innerHTML = 'Create Account';
+        }
+      } catch (err) {
+        errDiv.innerHTML = `<div class="alert alert-error">⚠ Cannot connect to server.</div>`;
+        btn.disabled = false;
+        btn.innerHTML = 'Create Account';
+      }
+    });
+  </script>
+</body>
+</html>

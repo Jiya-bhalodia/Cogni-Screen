@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Results — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="nav-logo-dot"></span>CogniScreen
+      </a>
+      <div class="nav-links">
+        <span class="badge badge-accent">Step 4 of 4 — Results</span>
+      </div>
+    </div>
+  </nav>
+
+  <div style="padding:40px 0 80px;">
+    <div class="container">
+      <!-- Delayed recall -->
+      <div id="delayed-recall-section" class="card mb-8" style="background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.2);">
+        <div class="flex items-center gap-3 mb-4">
+          <span style="font-size:1.5rem;">⏰</span>
+          <div>
+            <h3 style="font-weight:500;font-size:1rem;">Delayed Memory Recall</h3>
+            <p class="text-sm text-muted">Without looking back, select the images you memorized at the start.</p>
+          </div>
+        </div>
+        <div class="img-grid" id="delayed-grid" style="grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;"></div>
+        <button class="btn btn-outline" onclick="submitDelayedRecall()">Submit Delayed Recall</button>
+        <div id="delayed-result" class="hidden mt-4"></div>
+      </div>
+
+      <!-- Main results (hidden until delayed recall done) -->
+      <div id="results-main" class="hidden fade-in">
+        <!-- Classification banner -->
+        <div id="classification-card" class="mb-8"></div>
+
+        <!-- Score rings -->
+        <div class="card mb-6">
+          <h3 class="mb-6" style="font-size:1rem;font-weight:500;text-align:center;">Score Breakdown</h3>
+          <div class="grid-3 mb-6">
+            <div class="score-ring-wrap" id="ring-cog"></div>
+            <div class="score-ring-wrap" id="ring-mem"></div>
+            <div class="score-ring-wrap" id="ring-sp"></div>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="radar-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Detailed breakdown -->
+        <div class="card mb-6">
+          <h3 class="mb-4" style="font-size:1rem;font-weight:500;">Detailed Scores</h3>
+          <div id="score-details"></div>
+        </div>
+
+        <!-- AI Recommendations -->
+        <div class="card mb-6" style="background:rgba(79,195,247,0.03);border-color:rgba(79,195,247,0.15);">
+          <h3 class="mb-4" style="font-size:1rem;font-weight:500;">Clinical Observations</h3>
+          <div id="ai-recommendations" class="text-muted" style="font-size:0.9rem;line-height:1.9;"></div>
+        </div>
+
+        <!-- Speech transcript -->
+        <div class="card mb-6" id="transcript-section" style="display:none;">
+          <h3 class="mb-4" style="font-size:1rem;font-weight:500;">Speech Transcript</h3>
+          <div class="transcript-box" id="final-transcript"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3 justify-center flex-wrap">
+          <a href="dashboard.html" class="btn btn-ghost">View Dashboard</a>
+          <a href="cognitive.html" class="btn btn-outline">Retake Test</a>
+          <button class="btn btn-primary" onclick="window.print()">🖨 Print Report</button>
+        </div>
+
+        <p class="text-center text-xs text-muted mt-6" style="opacity:0.5;">
+          ⚠ This tool is for educational/research purposes only and does not constitute a medical diagnosis. Consult a qualified neurologist or geriatrician for clinical assessment.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    // ── Auth: stay on this page no matter what — never redirect away ──────────
+    // We check user but do NOT call requireAuth() which would redirect on expiry
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+    // ── Read scores — prefer sessionStorage, fall back to localStorage backup ─
+    function getScore(key, fallback) {
+      const ss = sessionStorage.getItem(key);
+      if (ss !== null) {
+        localStorage.setItem('result_' + key, ss); // keep a backup
+        return parseInt(ss) || fallback;
+      }
+      const ls = localStorage.getItem('result_' + key);
+      return ls !== null ? (parseInt(ls) || fallback) : fallback;
+    }
+    function getString(key, fallback) {
+      const ss = sessionStorage.getItem(key);
+      if (ss !== null) { localStorage.setItem('result_' + key, ss); return ss; }
+      return localStorage.getItem('result_' + key) || fallback;
+    }
+    function getJSON(key, fallback) {
+      const ss = sessionStorage.getItem(key);
+      if (ss !== null) { localStorage.setItem('result_' + key, ss); try { return JSON.parse(ss); } catch(e) { return fallback; } }
+      const ls = localStorage.getItem('result_' + key);
+      if (ls) { try { return JSON.parse(ls); } catch(e) { return fallback; } }
+      return fallback;
+    }
+
+    const cogScore   = getScore('cogScore', 50);
+    const recallScore = getScore('recallScore', 50);
+    const speechScore = getScore('speechScore', 50);
+    const transcript  = getString('speechTranscript', '');
+    const memTargets  = getJSON('memTargets', []);
+
+    // Delayed recall grid
+    const ALL_OBJECTS = [
+      { id:'dog',emoji:'🐕',label:'Dog' },{ id:'cat',emoji:'🐈',label:'Cat' },
+      { id:'elephant',emoji:'🐘',label:'Elephant' },{ id:'lion',emoji:'🦁',label:'Lion' },
+      { id:'penguin',emoji:'🐧',label:'Penguin' },{ id:'rabbit',emoji:'🐇',label:'Rabbit' },
+      { id:'fish',emoji:'🐟',label:'Fish' },{ id:'butterfly',emoji:'🦋',label:'Butterfly' },
+      { id:'owl',emoji:'🦉',label:'Owl' },{ id:'horse',emoji:'🐎',label:'Horse' },
+      { id:'frog',emoji:'🐸',label:'Frog' },{ id:'bear',emoji:'🐻',label:'Bear' },
+      { id:'apple',emoji:'🍎',label:'Apple' },{ id:'banana',emoji:'🍌',label:'Banana' },
+      { id:'grapes',emoji:'🍇',label:'Grapes' },{ id:'pizza',emoji:'🍕',label:'Pizza' },
+      { id:'cake',emoji:'🎂',label:'Cake' },{ id:'icecream',emoji:'🍦',label:'Ice Cream' },
+      { id:'coffee',emoji:'☕',label:'Coffee' },{ id:'watermelon',emoji:'🍉',label:'Watermelon' },
+      { id:'bread',emoji:'🍞',label:'Bread' },{ id:'strawberry',emoji:'🍓',label:'Strawberry' },
+      { id:'mango',emoji:'🥭',label:'Mango' },{ id:'corn',emoji:'🌽',label:'Corn' },
+      { id:'key',emoji:'🔑',label:'Key' },{ id:'lamp',emoji:'💡',label:'Lamp' },
+      { id:'clock',emoji:'⏰',label:'Clock' },{ id:'book',emoji:'📚',label:'Book' },
+      { id:'phone',emoji:'📱',label:'Phone' },{ id:'umbrella',emoji:'☂️',label:'Umbrella' },
+      { id:'glasses',emoji:'👓',label:'Glasses' },{ id:'scissors',emoji:'✂️',label:'Scissors' },
+      { id:'lock',emoji:'🔒',label:'Lock' },{ id:'pencil',emoji:'✏️',label:'Pencil' },
+      { id:'bag',emoji:'👜',label:'Bag' },{ id:'camera',emoji:'📷',label:'Camera' },
+      { id:'tree',emoji:'🌳',label:'Tree' },{ id:'flower',emoji:'🌸',label:'Flower' },
+      { id:'sun',emoji:'☀️',label:'Sun' },{ id:'moon',emoji:'🌙',label:'Moon' },
+      { id:'star',emoji:'⭐',label:'Star' },{ id:'cloud',emoji:'☁️',label:'Cloud' },
+      { id:'rainbow',emoji:'🌈',label:'Rainbow' },{ id:'snowflake',emoji:'❄️',label:'Snowflake' },
+      { id:'leaf',emoji:'🍃',label:'Leaf' },{ id:'mushroom',emoji:'🍄',label:'Mushroom' },
+      { id:'cactus',emoji:'🌵',label:'Cactus' },{ id:'volcano',emoji:'🌋',label:'Volcano' },
+      { id:'guitar',emoji:'🎸',label:'Guitar' },{ id:'piano',emoji:'🎹',label:'Piano' },
+      { id:'violin',emoji:'🎻',label:'Violin' },{ id:'drum',emoji:'🥁',label:'Drum' },
+      { id:'trumpet',emoji:'🎺',label:'Trumpet' },{ id:'palette',emoji:'🎨',label:'Palette' },
+      { id:'trophy',emoji:'🏆',label:'Trophy' },{ id:'balloon',emoji:'🎈',label:'Balloon' },
+      { id:'bicycle',emoji:'🚲',label:'Bicycle' },{ id:'rocket',emoji:'🚀',label:'Rocket' },
+      { id:'ship',emoji:'🚢',label:'Ship' },{ id:'airplane',emoji:'✈️',label:'Airplane' },
+      { id:'house',emoji:'🏠',label:'House' },{ id:'anchor',emoji:'⚓',label:'Anchor' },
+      { id:'compass',emoji:'🧭',label:'Compass' },{ id:'tent',emoji:'⛺',label:'Tent' },
+    ];
+
+    const delayedSelected = new Set();
+    const targetIds = memTargets.map(t => t.id);
+    // If memTargets is empty (session lost), use a random subset of ALL_OBJECTS as fallback
+    const effectiveTargets = memTargets.length > 0 ? memTargets : ALL_OBJECTS.sort(() => Math.random() - 0.5).slice(0, 5);
+    const distractors = ALL_OBJECTS.filter(o => !effectiveTargets.map(t=>t.id).includes(o.id)).sort(() => Math.random() - 0.5).slice(0, 5);
+    const delayedGrid = [...effectiveTargets, ...distractors].sort(() => Math.random() - 0.5);
+
+    function renderDelayedGrid() {
+      document.getElementById('delayed-grid').innerHTML = delayedGrid.map(obj =>
+        `<div class="img-card ${delayedSelected.has(obj.id)?'selected':''}" id="dc-${obj.id}" onclick="toggleDelayed('${obj.id}')">
+          <div style="text-align:center;">
+            <div style="font-size:2.4rem;margin-bottom:4px;">${obj.emoji}</div>
+            <div class="text-xs text-muted">${obj.label}</div>
+          </div>
+        </div>`
+      ).join('');
+    }
+
+    function toggleDelayed(id) {
+      if (delayedSelected.has(id)) delayedSelected.delete(id);
+      else if (delayedSelected.size < 5) delayedSelected.add(id);
+      renderDelayedGrid();
+    }
+
+    function submitDelayedRecall() {
+      const effectiveIds = effectiveTargets.map(t => t.id);
+      const correct = [...delayedSelected].filter(id => effectiveIds.includes(id)).length;
+      const wrong = [...delayedSelected].filter(id => !effectiveIds.includes(id)).length;
+      const delayedPct = Math.round(Math.max(0, correct - wrong * 0.5) / 5 * 100);
+
+      // Mark grid — show correct and missed
+      delayedGrid.forEach(obj => {
+        const card = document.getElementById('dc-' + obj.id);
+        if (!card) return;
+        if (effectiveIds.includes(obj.id) && delayedSelected.has(obj.id)) {
+          card.classList.add('correct'); card.classList.remove('selected');
+        } else if (effectiveIds.includes(obj.id)) {
+          card.classList.add('missed'); card.classList.remove('selected');
+        }
+      });
+
+      document.getElementById('delayed-result').innerHTML = `
+        <div class="alert ${delayedPct >= 60 ? 'alert-success' : 'alert-warn'}">
+          Delayed recall: <strong>${correct}/5 correct</strong> — Score: ${delayedPct}%
+        </div>`;
+      document.getElementById('delayed-result').classList.remove('hidden');
+
+      // Disable the submit button so it can't be clicked again
+      const btn = document.querySelector('#delayed-recall-section button');
+      if (btn) { btn.disabled = true; btn.textContent = '✓ Submitted'; }
+
+      const finalMemScore = Math.round((recallScore + delayedPct) / 2);
+      sessionStorage.setItem('finalMemScore', finalMemScore);
+      localStorage.setItem('result_finalMemScore', finalMemScore);
+
+      // Show a small loading indicator while results are being built
+      const loadingEl = document.createElement('div');
+      loadingEl.id = 'results-loading';
+      loadingEl.innerHTML = `
+        <div class="flex items-center justify-center gap-3 mt-6" style="padding:20px;color:var(--text2);font-size:0.9rem;">
+          <span class="spinner"></span> Calculating your results…
+        </div>`;
+      document.getElementById('delayed-recall-section').after(loadingEl);
+
+      // Show full results below after a short pause
+      setTimeout(() => {
+        const le = document.getElementById('results-loading');
+        if (le) le.remove();
+        showFinalResults(finalMemScore);
+      }, 1600);
+    }
+
+    function showFinalResults(memFinal) {
+      // Dim the delayed recall section — but keep it visible, never hide it
+      const drSection = document.getElementById('delayed-recall-section');
+      drSection.style.transition = 'opacity 0.5s ease';
+      drSection.style.opacity = '0.45';
+      drSection.style.pointerEvents = 'none';
+
+      // Reveal the results section
+      const resultsMain = document.getElementById('results-main');
+      resultsMain.classList.remove('hidden');
+      resultsMain.style.opacity = '0';
+      resultsMain.style.transition = 'opacity 0.5s ease';
+      setTimeout(() => { resultsMain.style.opacity = '1'; }, 50);
+
+      const cogP = cogScore;
+      const memP = memFinal;
+      const spP = speechScore;
+      const avg = Math.round((cogP + memP + spP) / 3);
+
+      // Classification
+      let cls, emoji, title, desc, badgeClass;
+      if (avg >= 70) {
+        cls = 'low'; emoji = '✅'; title = 'Low Risk';
+        badgeClass = 'badge-success';
+        desc = 'Your results suggest cognitive function is within normal ranges for this screening. No immediate concerns were identified. Continue regular check-ups and maintain an active, healthy lifestyle.';
+      } else if (avg >= 40) {
+        cls = 'mild'; emoji = '⚠️'; title = 'Mild Concern';
+        badgeClass = 'badge-warn';
+        desc = 'Some areas showed slightly reduced performance. This may be due to fatigue, anxiety, or early-stage changes. We recommend a formal evaluation by a neurologist or neuropsychologist.';
+      } else {
+        cls = 'high'; emoji = '🔴'; title = 'High Risk — Consult a Doctor';
+        badgeClass = 'badge-danger';
+        desc = 'Multiple domains showed significant difficulty. This does not confirm a diagnosis, but a comprehensive clinical evaluation is strongly recommended. Please consult a neurologist promptly.';
+      }
+
+      document.getElementById('classification-card').innerHTML = `
+        <div class="classification ${cls}">
+          <div class="classification-icon">${emoji}</div>
+          <div class="classification-title">${title}</div>
+          <div class="flex justify-center mt-3 mb-4">
+            <span class="badge ${badgeClass}" style="font-size:0.85rem;">Overall Score: ${avg}%</span>
+          </div>
+          <p class="classification-desc">${desc}</p>
+        </div>`;
+
+      // Score rings
+      renderRing('ring-cog', cogP, 'Cognitive', '#4fc3f7');
+      renderRing('ring-mem', memP, 'Memory', '#81d4fa');
+      renderRing('ring-sp', spP, 'Speech', '#a5d6a7');
+
+      // Radar chart
+      renderRadar(cogP, memP, spP);
+
+      // Details
+      document.getElementById('score-details').innerHTML = `
+        ${scoreRow('Orientation & Attention', cogP, 'Questions about time, place, and serial subtraction')}
+        ${scoreRow('Word & Visual Recall', memP, 'Immediate and delayed image and word memory')}
+        ${scoreRow('Speech & Language', spP, 'Fluency, vocabulary, and coherence')}
+        ${scoreRow('Overall Composite', avg, 'Weighted average of all domains')}
+      `;
+
+      // Recommendations
+      const recs = [];
+      if (cogP < 50) recs.push('⚠ <strong>Attention/Orientation:</strong> Difficulty with temporal orientation and serial subtraction may indicate early executive function changes.');
+      if (memP < 50) recs.push('⚠ <strong>Memory:</strong> Reduced visual and verbal recall suggests short-term and working memory may be affected.');
+      if (spP < 50) recs.push('⚠ <strong>Speech:</strong> Limited vocabulary, short responses, or repetition can be early markers of language impairment.');
+      if (avg >= 70) recs.push('✅ <strong>Overall:</strong> Cognitive performance appears within normal limits. Maintain brain health through regular physical exercise, social engagement, and mentally stimulating activities.');
+      recs.push('ℹ <strong>Note:</strong> This tool is inspired by the ACE-III (Addenbrooke\'s Cognitive Examination) but is not a validated clinical instrument. Always seek professional evaluation.');
+      document.getElementById('ai-recommendations').innerHTML = recs.map(r => `<p class="mb-3">${r}</p>`).join('');
+
+      // Transcript
+      if (transcript) {
+        document.getElementById('transcript-section').style.display = '';
+        document.getElementById('final-transcript').textContent = transcript;
+      }
+
+      // Scroll to results
+      setTimeout(() => {
+        resultsMain.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 200);
+
+      // Save to DB only if we have a user
+      if (user) saveResults(cogP, memP, spP, transcript);
+    }
+
+    function renderRing(containerId, val, label, color) {
+      document.getElementById(containerId).innerHTML = `
+        <div style="
+          width:100px;height:100px;border-radius:50%;
+          background:conic-gradient(${color} ${val}%, rgba(255,255,255,0.05) 0%);
+          display:flex;align-items:center;justify-content:center;position:relative;
+        ">
+          <div style="width:72px;height:72px;border-radius:50%;background:var(--bg2);
+            display:flex;align-items:center;justify-content:center;position:relative;z-index:1;">
+            <span class="mono" style="font-size:1.1rem;font-weight:500;color:var(--text);">${val}%</span>
+          </div>
+        </div>
+        <span style="font-size:0.8rem;color:var(--text2);">${label}</span>
+      `;
+    }
+
+    function scoreRow(label, val, desc) {
+      const color = val >= 70 ? '#4caf50' : val >= 40 ? '#ffb74d' : '#ef5350';
+      return `<div class="score-item">
+        <div style="flex:1.5;">
+          <div class="text-sm">${label}</div>
+          <div class="text-xs text-muted">${desc}</div>
+        </div>
+        <div class="score-bar-wrap">
+          <div class="progress-wrap">
+            <div style="height:100%;border-radius:100px;width:${val}%;background:${color};transition:width 1s ease;"></div>
+          </div>
+        </div>
+        <div class="score-val mono">${val}%</div>
+      </div>`;
+    }
+
+    function renderRadar(cog, mem, sp) {
+      const ctx = document.getElementById('radar-chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: ['Cognitive', 'Memory', 'Speech', 'Fluency', 'Attention'],
+          datasets: [{
+            label: 'Your Score',
+            data: [cog, mem, sp, Math.round((cog+sp)/2), Math.round((cog*0.6+mem*0.4))],
+            backgroundColor: 'rgba(79,195,247,0.1)',
+            borderColor: '#4fc3f7',
+            pointBackgroundColor: '#4fc3f7',
+            pointRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            r: {
+              min: 0, max: 100,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              angleLines: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { display: false },
+              pointLabels: { color: '#8892a4', font: { size: 11 } }
+            }
+          }
+        }
+      });
+    }
+
+    async function saveResults(cog, mem, sp, trans) {
+      try {
+        await apiPost('/saveScore', {
+          user_id: user.id,
+          cognitive_score: cog,
+          memory_score: mem,
+          speech_score: sp,
+          transcript: trans
+        });
+        showToast('Results saved to your dashboard', 'success');
+      } catch (e) {
+        console.error('Failed to save results', e);
+        showToast('Could not save results (backend offline)', 'warn');
+      }
+    }
+
+    renderDelayedGrid();
+  </script>
+</body>
+</html>

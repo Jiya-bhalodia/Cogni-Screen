@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recall Test — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo"><span class="nav-logo-dot"></span>CogniScreen</a>
+      <div class="nav-links"><span class="badge badge-accent">Step 2 of 4 — Recall</span></div>
+    </div>
+  </nav>
+
+  <div style="padding:40px 0 80px;">
+    <div class="container">
+      <div class="text-center mb-8">
+        <h2 class="mb-3">Select the Images You Saw</h2>
+        <p class="text-muted">From the grid below, identify the <strong style="color:var(--accent);">5 images</strong> you memorized.</p>
+      </div>
+      <div class="flex items-center justify-center gap-4 mb-6">
+        <div class="card card-sm" style="padding:12px 24px;">
+          <span class="text-sm text-muted">Selected: </span>
+          <span class="mono text-accent" id="selected-count" style="font-weight:600;">0</span>
+          <span class="text-muted text-sm"> / 5</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="clearSelection()" style="padding:8px 16px;font-size:0.85rem;">Clear</button>
+      </div>
+      <div class="img-grid" id="recall-grid" style="margin-bottom:32px;"></div>
+      <div class="alert alert-warn mb-6">
+        ⏰ After this, you'll complete a speech test. Then there will be a <strong>delayed recall</strong> at the end.
+      </div>
+      <div class="flex justify-center">
+        <button class="btn btn-primary btn-lg" id="submit-btn" onclick="submitRecall()" disabled>Submit Recall →</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    requireAuth();
+    // ✦ Read memTargets from sessionStorage OR localStorage backup
+    let targets = [];
+    try {
+      const ss = sessionStorage.getItem('memTargets');
+      const ls = localStorage.getItem('result_memTargets');
+      targets = JSON.parse(ss || ls || '[]');
+    } catch(e) { targets = []; }
+
+    // ✦ If still empty, go back to memory page to re-pick
+    if (!targets.length) { location.href = 'memory.html'; }
+
+    const ALL_OBJECTS = [
+      { id:'dog',emoji:'🐕',label:'Dog' },{ id:'cat',emoji:'🐈',label:'Cat' },
+      { id:'elephant',emoji:'🐘',label:'Elephant' },{ id:'lion',emoji:'🦁',label:'Lion' },
+      { id:'penguin',emoji:'🐧',label:'Penguin' },{ id:'rabbit',emoji:'🐇',label:'Rabbit' },
+      { id:'fish',emoji:'🐟',label:'Fish' },{ id:'butterfly',emoji:'🦋',label:'Butterfly' },
+      { id:'owl',emoji:'🦉',label:'Owl' },{ id:'horse',emoji:'🐎',label:'Horse' },
+      { id:'frog',emoji:'🐸',label:'Frog' },{ id:'bear',emoji:'🐻',label:'Bear' },
+      { id:'apple',emoji:'🍎',label:'Apple' },{ id:'banana',emoji:'🍌',label:'Banana' },
+      { id:'grapes',emoji:'🍇',label:'Grapes' },{ id:'pizza',emoji:'🍕',label:'Pizza' },
+      { id:'cake',emoji:'🎂',label:'Cake' },{ id:'icecream',emoji:'🍦',label:'Ice Cream' },
+      { id:'coffee',emoji:'☕',label:'Coffee' },{ id:'watermelon',emoji:'🍉',label:'Watermelon' },
+      { id:'bread',emoji:'🍞',label:'Bread' },{ id:'strawberry',emoji:'🍓',label:'Strawberry' },
+      { id:'mango',emoji:'🥭',label:'Mango' },{ id:'corn',emoji:'🌽',label:'Corn' },
+      { id:'key',emoji:'🔑',label:'Key' },{ id:'lamp',emoji:'💡',label:'Lamp' },
+      { id:'clock',emoji:'⏰',label:'Clock' },{ id:'book',emoji:'📚',label:'Book' },
+      { id:'phone',emoji:'📱',label:'Phone' },{ id:'umbrella',emoji:'☂️',label:'Umbrella' },
+      { id:'glasses',emoji:'👓',label:'Glasses' },{ id:'scissors',emoji:'✂️',label:'Scissors' },
+      { id:'lock',emoji:'🔒',label:'Lock' },{ id:'pencil',emoji:'✏️',label:'Pencil' },
+      { id:'bag',emoji:'👜',label:'Bag' },{ id:'camera',emoji:'📷',label:'Camera' },
+      { id:'tree',emoji:'🌳',label:'Tree' },{ id:'flower',emoji:'🌸',label:'Flower' },
+      { id:'sun',emoji:'☀️',label:'Sun' },{ id:'moon',emoji:'🌙',label:'Moon' },
+      { id:'star',emoji:'⭐',label:'Star' },{ id:'cloud',emoji:'☁️',label:'Cloud' },
+      { id:'rainbow',emoji:'🌈',label:'Rainbow' },{ id:'snowflake',emoji:'❄️',label:'Snowflake' },
+      { id:'leaf',emoji:'🍃',label:'Leaf' },{ id:'mushroom',emoji:'🍄',label:'Mushroom' },
+      { id:'cactus',emoji:'🌵',label:'Cactus' },{ id:'volcano',emoji:'🌋',label:'Volcano' },
+      { id:'guitar',emoji:'🎸',label:'Guitar' },{ id:'piano',emoji:'🎹',label:'Piano' },
+      { id:'violin',emoji:'🎻',label:'Violin' },{ id:'drum',emoji:'🥁',label:'Drum' },
+      { id:'trumpet',emoji:'🎺',label:'Trumpet' },{ id:'palette',emoji:'🎨',label:'Palette' },
+      { id:'trophy',emoji:'🏆',label:'Trophy' },{ id:'balloon',emoji:'🎈',label:'Balloon' },
+      { id:'bicycle',emoji:'🚲',label:'Bicycle' },{ id:'rocket',emoji:'🚀',label:'Rocket' },
+      { id:'ship',emoji:'🚢',label:'Ship' },{ id:'airplane',emoji:'✈️',label:'Airplane' },
+      { id:'house',emoji:'🏠',label:'House' },{ id:'anchor',emoji:'⚓',label:'Anchor' },
+      { id:'compass',emoji:'🧭',label:'Compass' },{ id:'tent',emoji:'⛺',label:'Tent' },
+    ];
+
+    const targetIds = targets.map(t => t.id);
+    const distractors = ALL_OBJECTS.filter(o => !targetIds.includes(o.id)).sort(() => Math.random()-0.5).slice(0,11);
+    const gridItems = [...targets, ...distractors].sort(() => Math.random()-0.5);
+    const selected = new Set();
+
+    function renderGrid() {
+      document.getElementById('recall-grid').innerHTML = gridItems.map(obj => `
+        <div class="img-card ${selected.has(obj.id)?'selected':''}" id="card-${obj.id}" onclick="toggleSelect('${obj.id}')">
+          <div style="text-align:center;">
+            <div style="font-size:2.4rem;margin-bottom:6px;">${obj.emoji}</div>
+            <div class="text-xs text-muted">${obj.label}</div>
+          </div>
+        </div>`).join('');
+    }
+
+    function toggleSelect(id) {
+      if (selected.has(id)) { selected.delete(id); }
+      else { if (selected.size >= 5) { showToast('You can only select 5 images','warn'); return; } selected.add(id); }
+      document.getElementById('selected-count').textContent = selected.size;
+      document.getElementById('submit-btn').disabled = selected.size === 0;
+      renderGrid();
+    }
+
+    function clearSelection() {
+      selected.clear();
+      document.getElementById('selected-count').textContent = 0;
+      document.getElementById('submit-btn').disabled = true;
+      renderGrid();
+    }
+
+    function submitRecall() {
+      const correct = [...selected].filter(id => targetIds.includes(id)).length;
+      const wrong   = [...selected].filter(id => !targetIds.includes(id)).length;
+      const pct     = Math.round(Math.max(0, correct - wrong*0.5) / 5 * 100);
+      // ✦ Write to BOTH sessionStorage and localStorage
+      sessionStorage.setItem('recallScore', pct);
+      localStorage.setItem('result_recallScore', pct);
+      localStorage.setItem('result_memTargets', JSON.stringify(targets));
+      location.href = 'speech.html';
+    }
+
+    renderGrid();
+  </script>
+</body>
+</html>

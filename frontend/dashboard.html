@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="nav-logo-dot"></span>
+        CogniScreen
+      </a>
+      <div class="nav-links">
+        <span id="user-name-nav" class="text-muted text-sm"></span>
+        <a href="cognitive.html" class="btn btn-primary" style="padding:7px 16px;font-size:0.875rem;">Start Test</a>
+        <button onclick="logout()" class="btn btn-ghost" style="padding:7px 14px;font-size:0.875rem;">Sign Out</button>
+      </div>
+    </div>
+  </nav>
+
+  <div style="padding: 40px 0 80px;">
+    <div class="container-wide">
+      <!-- Header -->
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <h1 style="font-size:2rem;" id="greeting">Good morning</h1>
+          <p class="text-muted mt-2">Your cognitive screening dashboard</p>
+        </div>
+        <a href="cognitive.html" class="btn btn-primary btn-lg">
+          ＋ New Screening
+        </a>
+      </div>
+
+      <!-- Stats row -->
+      <div class="grid-3 mb-8" id="stats-row">
+        <div class="stat-card">
+          <div class="stat-num" id="stat-tests">—</div>
+          <div class="stat-label">Tests Completed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-avg">—</div>
+          <div class="stat-label">Avg. Total Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-last">—</div>
+          <div class="stat-label">Last Test Score</div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="gap:24px;align-items:start;">
+        <!-- Chart -->
+        <div class="card">
+          <h3 class="mb-4" style="font-size:1rem;font-weight:500;">Score History</h3>
+          <div class="chart-wrap">
+            <canvas id="score-chart"></canvas>
+          </div>
+          <div class="flex gap-4 mt-4" style="flex-wrap:wrap;">
+            <div class="flex items-center gap-2">
+              <div style="width:12px;height:12px;border-radius:50%;background:#4fc3f7;"></div>
+              <span class="text-xs text-muted">Cognitive</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div style="width:12px;height:12px;border-radius:50%;background:#81d4fa;"></div>
+              <span class="text-xs text-muted">Memory</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div style="width:12px;height:12px;border-radius:50%;background:#a5d6a7;"></div>
+              <span class="text-xs text-muted">Speech</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Latest result highlight -->
+        <div id="latest-card">
+          <div class="card" style="background:rgba(79,195,247,0.03);border-color:rgba(79,195,247,0.15);">
+            <div class="flex items-center justify-between mb-4">
+              <h3 style="font-size:1rem;font-weight:500;">Latest Result</h3>
+              <span class="badge badge-accent">Most Recent</span>
+            </div>
+            <div id="latest-content">
+              <p class="text-muted text-sm">No tests completed yet.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History table -->
+      <div class="card mt-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 style="font-size:1rem;font-weight:500;">Test History</h3>
+          <span class="text-xs text-muted" id="history-count"></span>
+        </div>
+        <div class="history-row header">
+          <div>Date</div>
+          <div>Cognitive</div>
+          <div>Memory</div>
+          <div>Speech</div>
+          <div>Classification</div>
+        </div>
+        <div class="divider" style="margin:8px 0;"></div>
+        <div id="history-list">
+          <p class="text-muted text-sm" style="padding:16px 20px;">Loading history...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    const user = requireAuth();
+    document.getElementById('user-name-nav').textContent = user.name;
+
+    // Greeting
+    const hour = new Date().getHours();
+    const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    document.getElementById('greeting').textContent = greet + ', ' + user.name.split(' ')[0];
+
+    let scoreChart;
+
+    async function loadDashboard() {
+      try {
+        const data = await apiFetch('/getScores/' + user.id);
+        const results = data.results || [];
+        document.getElementById('stat-tests').textContent = results.length;
+        if (results.length > 0) {
+          const avg = Math.round(results.reduce((a, r) => a + (r.cognitive_score + r.memory_score + r.speech_score), 0) / results.length);
+          document.getElementById('stat-avg').textContent = avg + '%';
+          const last = results[0];
+          const lastTotal = Math.round((last.cognitive_score + last.memory_score + last.speech_score) / 3);
+          document.getElementById('stat-last').textContent = lastTotal + '%';
+          renderLatest(last);
+          renderHistory(results);
+          renderChart(results);
+          document.getElementById('history-count').textContent = results.length + ' records';
+        } else {
+          document.getElementById('stat-avg').textContent = '—';
+          document.getElementById('stat-last').textContent = '—';
+          document.getElementById('history-list').innerHTML = '<p class="text-muted text-sm" style="padding:16px 20px;">No tests completed yet. <a href="cognitive.html" class="text-accent" style="text-decoration:none;">Start your first screening →</a></p>';
+          renderChart([]);
+        }
+      } catch (e) {
+        console.error(e);
+        document.getElementById('history-list').innerHTML = '<p class="text-muted text-sm" style="padding:16px 20px;">Could not load history. Is the backend running?</p>';
+      }
+    }
+
+    function renderLatest(r) {
+      const cls = classify(r.cognitive_score, r.memory_score, r.speech_score);
+      const total = Math.round((r.cognitive_score + r.memory_score + r.speech_score) / 3);
+      document.getElementById('latest-content').innerHTML = `
+        <div class="flex" style="gap:12px;margin-bottom:20px;">
+          ${scoreRing(r.cognitive_score, 'Cognitive')}
+          ${scoreRing(r.memory_score, 'Memory')}
+          ${scoreRing(r.speech_score, 'Speech')}
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="badge ${cls.badge}">${cls.label}</span>
+          <span class="text-xs text-muted">${formatDate(r.timestamp)}</span>
+        </div>
+        ${r.transcript ? `<div class="transcript-box mt-4" style="font-size:0.78rem;">${r.transcript.substring(0,200)}${r.transcript.length>200?'...':''}</div>` : ''}
+      `;
+    }
+
+    function scoreRing(val, label) {
+      const pct = Math.round(val);
+      const color = pct >= 70 ? '#4caf50' : pct >= 40 ? '#ffb74d' : '#ef5350';
+      return `<div style="text-align:center;flex:1;">
+        <div style="
+          width:60px;height:60px;border-radius:50%;margin:0 auto 6px;
+          background:conic-gradient(${color} ${pct}%, rgba(255,255,255,0.06) 0%);
+          display:flex;align-items:center;justify-content:center;position:relative;
+        ">
+          <div style="width:44px;height:44px;border-radius:50%;background:var(--bg2);
+            display:flex;align-items:center;justify-content:center;
+            font-family:var(--font-mono);font-size:0.7rem;font-weight:500;color:var(--text);">
+            ${pct}%
+          </div>
+        </div>
+        <div class="text-xs text-muted">${label}</div>
+      </div>`;
+    }
+
+    function renderHistory(results) {
+      if (!results.length) return;
+      const html = results.map(r => {
+        const cls = classify(r.cognitive_score, r.memory_score, r.speech_score);
+        return `<div class="history-row">
+          <div class="text-sm">${formatDate(r.timestamp)}</div>
+          <div class="text-sm mono">${r.cognitive_score}%</div>
+          <div class="text-sm mono">${r.memory_score}%</div>
+          <div class="text-sm mono">${r.speech_score}%</div>
+          <div><span class="badge ${cls.badge}" style="font-size:0.7rem;">${cls.label}</span></div>
+        </div>`;
+      }).join('');
+      document.getElementById('history-list').innerHTML = html;
+    }
+
+    function renderChart(results) {
+      const ctx = document.getElementById('score-chart').getContext('2d');
+      const labels = results.slice(0,10).reverse().map((r,i) => 'Test ' + (i+1));
+      const cognitive = results.slice(0,10).reverse().map(r => r.cognitive_score);
+      const memory = results.slice(0,10).reverse().map(r => r.memory_score);
+      const speech = results.slice(0,10).reverse().map(r => r.speech_score);
+
+      if (scoreChart) scoreChart.destroy();
+      scoreChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length ? labels : ['No data'],
+          datasets: [
+            { label: 'Cognitive', data: cognitive, borderColor: '#4fc3f7', backgroundColor: 'rgba(79,195,247,0.08)', tension: 0.4, pointBackgroundColor: '#4fc3f7', pointRadius: 4 },
+            { label: 'Memory', data: memory, borderColor: '#81d4fa', backgroundColor: 'rgba(129,212,250,0.08)', tension: 0.4, pointBackgroundColor: '#81d4fa', pointRadius: 4 },
+            { label: 'Speech', data: speech, borderColor: '#a5d6a7', backgroundColor: 'rgba(165,214,167,0.08)', tension: 0.4, pointBackgroundColor: '#a5d6a7', pointRadius: 4 },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8892a4', font: { size: 11 } } },
+            y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8892a4', font: { size: 11 }, callback: v => v + '%' } }
+          }
+        }
+      });
+    }
+
+    function classify(cog, mem, sp) {
+      const avg = (cog + mem + sp) / 3;
+      if (avg >= 70) return { label: 'Low Risk', badge: 'badge-success' };
+      if (avg >= 40) return { label: 'Mild Concern', badge: 'badge-warn' };
+      return { label: 'High Risk', badge: 'badge-danger' };
+    }
+
+    function formatDate(ts) {
+      return new Date(ts).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

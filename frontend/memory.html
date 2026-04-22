@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Test — CogniScreen</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo"><span class="nav-logo-dot"></span>CogniScreen</a>
+      <div class="nav-links"><span class="badge badge-accent">Step 2 of 4 — Memory</span></div>
+    </div>
+  </nav>
+
+  <div style="padding:40px 0 80px;">
+    <div class="container">
+      <div id="phase-memorize" class="fade-in">
+        <div class="text-center mb-8">
+          <h2 class="mb-3">Visual Memory Test</h2>
+          <p class="text-muted">Study these images carefully. You will be asked to identify them later.</p>
+        </div>
+        <div class="flex items-center justify-center gap-4 mb-6">
+          <div class="timer-ring" id="mem-timer">30</div>
+          <div>
+            <div style="font-weight:500;">Time to memorize</div>
+            <div class="text-sm text-muted">Look at each image carefully</div>
+          </div>
+        </div>
+        <div class="img-grid" style="grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:32px;" id="memorize-grid"></div>
+        <div class="card card-sm" style="background:rgba(79,195,247,0.04);border-color:rgba(79,195,247,0.15);">
+          <p class="text-sm" style="color:var(--accent2);">🧠 Focus on remembering: the objects, their shapes, and colours. The timer will advance automatically.</p>
+        </div>
+      </div>
+
+      <div id="phase-ready" class="hidden text-center fade-in">
+        <div class="card" style="max-width:480px;margin:0 auto;padding:48px;">
+          <div style="font-size:3rem;margin-bottom:20px;">🧠</div>
+          <h2 class="mb-4">Time's up!</h2>
+          <p class="text-muted mb-8">Now we'll test how many images you can recall from a larger grid.</p>
+          <button class="btn btn-primary btn-lg" onclick="startRecall()">Start Recall Test →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    requireAuth();
+
+    // ── 60 objects across 6 categories for maximum variety ───────────────────
+    const ALL_OBJECTS = [
+      // 🐾 Animals (12)
+      { id:'dog',       emoji:'🐕', label:'Dog',        cat:'animal' },
+      { id:'cat',       emoji:'🐈', label:'Cat',        cat:'animal' },
+      { id:'elephant',  emoji:'🐘', label:'Elephant',   cat:'animal' },
+      { id:'lion',      emoji:'🦁', label:'Lion',       cat:'animal' },
+      { id:'penguin',   emoji:'🐧', label:'Penguin',    cat:'animal' },
+      { id:'rabbit',    emoji:'🐇', label:'Rabbit',     cat:'animal' },
+      { id:'fish',      emoji:'🐟', label:'Fish',       cat:'animal' },
+      { id:'butterfly', emoji:'🦋', label:'Butterfly',  cat:'animal' },
+      { id:'owl',       emoji:'🦉', label:'Owl',        cat:'animal' },
+      { id:'horse',     emoji:'🐎', label:'Horse',      cat:'animal' },
+      { id:'frog',      emoji:'🐸', label:'Frog',       cat:'animal' },
+      { id:'bear',      emoji:'🐻', label:'Bear',       cat:'animal' },
+
+      // 🍎 Food & Drink (12)
+      { id:'apple',     emoji:'🍎', label:'Apple',      cat:'food' },
+      { id:'banana',    emoji:'🍌', label:'Banana',     cat:'food' },
+      { id:'grapes',    emoji:'🍇', label:'Grapes',     cat:'food' },
+      { id:'pizza',     emoji:'🍕', label:'Pizza',      cat:'food' },
+      { id:'cake',      emoji:'🎂', label:'Cake',       cat:'food' },
+      { id:'icecream',  emoji:'🍦', label:'Ice Cream',  cat:'food' },
+      { id:'coffee',    emoji:'☕', label:'Coffee',     cat:'food' },
+      { id:'watermelon',emoji:'🍉', label:'Watermelon', cat:'food' },
+      { id:'bread',     emoji:'🍞', label:'Bread',      cat:'food' },
+      { id:'strawberry',emoji:'🍓', label:'Strawberry', cat:'food' },
+      { id:'mango',     emoji:'🥭', label:'Mango',      cat:'food' },
+      { id:'corn',      emoji:'🌽', label:'Corn',       cat:'food' },
+
+      // 🏠 Everyday Objects (12)
+      { id:'key',       emoji:'🔑', label:'Key',        cat:'object' },
+      { id:'lamp',      emoji:'💡', label:'Lamp',       cat:'object' },
+      { id:'clock',     emoji:'⏰', label:'Clock',      cat:'object' },
+      { id:'book',      emoji:'📚', label:'Book',       cat:'object' },
+      { id:'phone',     emoji:'📱', label:'Phone',      cat:'object' },
+      { id:'umbrella',  emoji:'☂️', label:'Umbrella',   cat:'object' },
+      { id:'glasses',   emoji:'👓', label:'Glasses',    cat:'object' },
+      { id:'scissors',  emoji:'✂️', label:'Scissors',   cat:'object' },
+      { id:'lock',      emoji:'🔒', label:'Lock',       cat:'object' },
+      { id:'pencil',    emoji:'✏️', label:'Pencil',     cat:'object' },
+      { id:'bag',       emoji:'👜', label:'Bag',        cat:'object' },
+      { id:'camera',    emoji:'📷', label:'Camera',     cat:'object' },
+
+      // 🌿 Nature (12)
+      { id:'tree',      emoji:'🌳', label:'Tree',       cat:'nature' },
+      { id:'flower',    emoji:'🌸', label:'Flower',     cat:'nature' },
+      { id:'sun',       emoji:'☀️', label:'Sun',        cat:'nature' },
+      { id:'moon',      emoji:'🌙', label:'Moon',       cat:'nature' },
+      { id:'star',      emoji:'⭐', label:'Star',       cat:'nature' },
+      { id:'cloud',     emoji:'☁️', label:'Cloud',      cat:'nature' },
+      { id:'rainbow',   emoji:'🌈', label:'Rainbow',    cat:'nature' },
+      { id:'volcano',   emoji:'🌋', label:'Volcano',    cat:'nature' },
+      { id:'snowflake', emoji:'❄️', label:'Snowflake',  cat:'nature' },
+      { id:'leaf',      emoji:'🍃', label:'Leaf',       cat:'nature' },
+      { id:'mushroom',  emoji:'🍄', label:'Mushroom',   cat:'nature' },
+      { id:'cactus',    emoji:'🌵', label:'Cactus',     cat:'nature' },
+
+      // 🎵 Arts & Leisure (12)
+      { id:'guitar',    emoji:'🎸', label:'Guitar',     cat:'arts' },
+      { id:'piano',     emoji:'🎹', label:'Piano',      cat:'arts' },
+      { id:'violin',    emoji:'🎻', label:'Violin',     cat:'arts' },
+      { id:'drum',      emoji:'🥁', label:'Drum',       cat:'arts' },
+      { id:'trumpet',   emoji:'🎺', label:'Trumpet',    cat:'arts' },
+      { id:'palette',   emoji:'🎨', label:'Palette',    cat:'arts' },
+      { id:'movie',     emoji:'🎬', label:'Clapboard',  cat:'arts' },
+      { id:'dice',      emoji:'🎲', label:'Dice',       cat:'arts' },
+      { id:'kite',      emoji:'🪁', label:'Slingshot',  cat:'arts' },
+      { id:'balloon',   emoji:'🎈', label:'Balloon',    cat:'arts' },
+      { id:'trophy',    emoji:'🏆', label:'Trophy',     cat:'arts' },
+      { id:'telescope', emoji:'🔭', label:'Telescope',  cat:'arts' },
+
+      // 🚗 Transport & Places (12)
+      { id:'bicycle',   emoji:'🚲', label:'Bicycle',    cat:'transport' },
+      { id:'car',       emoji:'🚗', label:'Car',        cat:'transport' },
+      { id:'rocket',    emoji:'🚀', label:'Rocket',     cat:'transport' },
+      { id:'ship',      emoji:'🚢', label:'Ship',       cat:'transport' },
+      { id:'train',     emoji:'🚂', label:'Train',      cat:'transport' },
+      { id:'airplane',  emoji:'✈️', label:'Airplane',   cat:'transport' },
+      { id:'house',     emoji:'🏠', label:'House',      cat:'transport' },
+      { id:'lighthouse',emoji:'🗼', label:'Tower',      cat:'transport' },
+      { id:'bridge',    emoji:'🌉', label:'Bridge',     cat:'transport' },
+      { id:'tent',      emoji:'⛺', label:'Tent',       cat:'transport' },
+      { id:'anchor',    emoji:'⚓', label:'Anchor',     cat:'transport' },
+      { id:'compass',   emoji:'🧭', label:'Compass',    cat:'transport' },
+    ];
+
+    // Pick 5 random targets — guaranteed spread across at least 3 categories
+    function pickDiverseTargets(pool, count) {
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      const picked = [];
+      const usedCats = new Set();
+      // First pass: pick one from each category
+      for (const obj of shuffled) {
+        if (picked.length >= count) break;
+        if (!usedCats.has(obj.cat)) {
+          picked.push(obj);
+          usedCats.add(obj.cat);
+        }
+      }
+      // Fill remaining slots with any unused object
+      for (const obj of shuffled) {
+        if (picked.length >= count) break;
+        if (!picked.find(p => p.id === obj.id)) picked.push(obj);
+      }
+      return picked;
+    }
+
+    const targets = pickDiverseTargets(ALL_OBJECTS, 5);
+
+    // ✦ Write to BOTH sessionStorage and localStorage
+    sessionStorage.setItem('memTargets', JSON.stringify(targets));
+    localStorage.setItem('result_memTargets', JSON.stringify(targets));
+
+    // Render memorize grid
+    const grid = document.getElementById('memorize-grid');
+    targets.forEach(obj => {
+      grid.innerHTML += `
+        <div class="img-card" style="cursor:default;border-color:rgba(79,195,247,0.3);">
+          <div style="text-align:center;">
+            <div style="font-size:2.8rem;margin-bottom:8px;">${obj.emoji}</div>
+            <div class="text-xs text-muted">${obj.label}</div>
+          </div>
+        </div>`;
+    });
+
+    // Countdown timer
+    let timeLeft = 30;
+    const timerEl = document.getElementById('mem-timer');
+    const interval = setInterval(() => {
+      timeLeft--;
+      timerEl.textContent = timeLeft;
+      timerEl.className = 'timer-ring' + (timeLeft <= 5 ? ' danger' : timeLeft <= 10 ? ' warn' : '');
+      if (timeLeft <= 0) {
+        clearInterval(interval);
+        document.getElementById('phase-memorize').classList.add('hidden');
+        document.getElementById('phase-ready').classList.remove('hidden');
+      }
+    }, 1000);
+
+    function startRecall() { location.href = 'recall.html'; }
+  </script>
+</body>
+</html>
